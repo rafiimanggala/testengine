@@ -1,5 +1,4 @@
 import Docker from 'dockerode';
-import { PortAllocator } from './port-allocator.js';
 import { ContainerPool } from './container-pool.js';
 import { rewriteUrl } from './url-rewriter.js';
 import type { Database as TestEngineDB } from './database.js';
@@ -17,14 +16,12 @@ export interface Session {
 
 export class SessionManager {
   private docker: Docker;
-  private portAllocator: PortAllocator;
   private pool: ContainerPool;
   private sessions: Map<string, Session> = new Map();
   private db?: TestEngineDB;
 
   constructor(docker?: Docker, basePort?: number, db?: TestEngineDB, pool?: ContainerPool) {
     this.docker = docker ?? new Docker();
-    this.portAllocator = new PortAllocator(basePort ?? 9100);
     this.pool = pool ?? new ContainerPool(this.docker, basePort ?? 9100);
     this.db = db;
     this.cleanupStaleFromDb();
