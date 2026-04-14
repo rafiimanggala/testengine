@@ -1,6 +1,7 @@
 import Docker from 'dockerode';
 import { PortAllocator } from './port-allocator.js';
 import { rewriteUrl } from './url-rewriter.js';
+import type { Database as TestEngineDB } from './database.js';
 
 export interface Session {
   id: string;
@@ -20,10 +21,21 @@ export class SessionManager {
   private docker: Docker;
   private portAllocator: PortAllocator;
   private sessions: Map<string, Session> = new Map();
+  private db?: TestEngineDB;
 
-  constructor(docker?: Docker, basePort?: number) {
+  constructor(docker?: Docker, basePort?: number, db?: TestEngineDB) {
     this.docker = docker ?? new Docker();
     this.portAllocator = new PortAllocator(basePort ?? 9100);
+    this.db = db;
+    this.cleanupStaleFromDb();
+  }
+
+  private cleanupStaleFromDb(): void {
+    if (!this.db) return;
+    const staleSessions = this.db.listSessions();
+    for (const s of staleSessions) {
+      this.db.deleteSession(s.id);
+    }
   }
 
   async create(id: string, url: string, mode: 'headless' | 'visible' = 'headless'): Promise<Session> {
@@ -57,6 +69,15 @@ export class SessionManager {
     };
 
     this.sessions.set(id, session);
+    this.db?.upsertSession({
+      id: session.id,
+      url: session.url,
+      mode: session.mode,
+      status: session.status,
+      port: session.port,
+      containerId: session.containerId,
+      viewerPort: session.viewerPort,
+    });
     return session;
   }
 
@@ -80,6 +101,7 @@ export class SessionManager {
 
     this.portAllocator.release(id);
     this.sessions.delete(id);
+    this.db?.deleteSession(id);
   }
 
   async destroyAll(): Promise<void> {
@@ -103,6 +125,9 @@ export class SessionManager {
 
   setStatus(id: string, status: Session['status']): void {
     const session = this.sessions.get(id);
-    if (session) session.status = status;
+    if (session) {
+      session.status = status;
+      this.db?.updateSessionStatus(id, status);
+    }
   }
 }
