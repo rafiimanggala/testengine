@@ -7,6 +7,7 @@ export interface Session {
   url: string;
   mode: 'headless' | 'visible';
   port: number;
+  viewerPort?: number;
   containerId: string;
   status: 'starting' | 'running' | 'stopped';
   createdAt: Date;

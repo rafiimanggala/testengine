@@ -14,16 +14,19 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "docker:build": "docker build --platform linux/arm64 -t testengine-browser docker/",
-    "setup": "npm run docker:build && echo 'TestEngine setup complete'"
+    "setup": "npm run docker:build && echo 'TestEngine setup complete'",
+    "viewer:build": "cd viewer/TestEngineViewer && swift build -c release"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
     "dockerode": "^4.0.4",
-    "playwright": "1.52.0"
+    "playwright": "1.52.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.31",
     "@types/node": "^20.0.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }
