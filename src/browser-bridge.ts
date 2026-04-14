@@ -45,7 +45,7 @@ export class BrowserBridge {
     this.pages.delete(sessionId);
   }
 
-  private getPage(sessionId: string): Page {
+  getPage(sessionId: string): Page {
     const page = this.pages.get(sessionId);
     if (!page) throw new Error(`No page for session "${sessionId}". Is it connected?`);
     return page;
