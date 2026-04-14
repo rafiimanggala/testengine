@@ -29,6 +29,7 @@ export interface ToolContent {
 }
 
 export interface ToolResult {
+  [key: string]: unknown;
   content: ToolContent[];
   isError?: boolean;
 }
