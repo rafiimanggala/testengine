@@ -26,7 +26,13 @@ export class ScreencastRelay {
     const cdpSession = await page.context().newCDPSession(page);
     const clients = new Set<WebSocket>();
 
-    const wsServer = new WebSocketServer({ port });
+    const wsServer = new WebSocketServer({
+      port,
+      host: '127.0.0.1',
+      verifyClient: (info: { origin: string }) => {
+        return !info.origin; // native apps don't send Origin; reject browser connections
+      },
+    });
 
     await new Promise<void>((resolve, reject) => {
       wsServer.on('listening', resolve);
