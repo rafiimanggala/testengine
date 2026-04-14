@@ -31,4 +31,15 @@ export const sessionToolDefs = [
       properties: {},
     },
   },
+  {
+    name: 'session_summary',
+    description: 'Get an AI-friendly summary of a session: current URL, action count, last action. Useful after context compaction to recover session state.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Session ID' },
+      },
+      required: ['id'],
+    },
+  },
 ];

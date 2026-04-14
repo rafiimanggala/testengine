@@ -4,10 +4,11 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { SessionManager } from './session-manager.js';
 import { BrowserBridge } from './browser-bridge.js';
+import { Database } from './database.js';
+import { ActionTracker } from './action-tracker.js';
 import { ScreencastRelay } from './screencast-relay.js';
 import { rewriteUrl } from './url-rewriter.js';
 import { sessionToolDefs } from './tools/session-tools.js';
@@ -19,10 +20,9 @@ import { fileURLToPath } from 'url';
 
 const SESSION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/;
 
-const AUTH_DIR = join(process.cwd(), 'data', 'auth');
-if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
-
-const sessionManager = new SessionManager();
+const database = new Database();
+const actionTracker = new ActionTracker(database);
+const sessionManager = new SessionManager(undefined, undefined, database);
 const browserBridge = new BrowserBridge(sessionManager);
 const screencastRelay = new ScreencastRelay(9200);
 const viewerProcesses = new Map<string, ChildProcess>();
@@ -97,76 +97,105 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
         const lines = sessions.map((s) => {
           const viewer = s.viewerPort ? `, viewer ws://localhost:${s.viewerPort}` : '';
-          return `- ${s.id}: ${s.url} (${s.status}, port ${s.port}${viewer})`;
+          const actions = actionTracker.getCount(s.id);
+          return `- ${s.id}: ${s.url} (${s.status}, port ${s.port}, ${actions} actions${viewer})`;
         });
         return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      case 'session_summary': {
+        const { id } = args as { id: string };
+        const session = sessionManager.get(id);
+        if (!session) {
+          return { content: [{ type: 'text', text: `Session "${id}" not found.` }], isError: true };
+        }
+        let currentUrl: string;
+        try {
+          currentUrl = await browserBridge.getCurrentUrl(id);
+        } catch {
+          currentUrl = session.url;
+        }
+        const viewer = session.viewerPort ? `, viewer ws://localhost:${session.viewerPort}` : '';
+        const summaryText = actionTracker.getSummaryText(id, currentUrl);
+        const text = `${id}: ${summaryText}, mode: ${session.mode}, port: ${session.port}${viewer}`;
+        return { content: [{ type: 'text', text }] };
       }
 
       // === Browser Tools ===
       case 'navigate': {
         const { session_id, url } = args as { session_id: string; url: string };
         const result = await browserBridge.navigate(session_id, rewriteUrl(url));
+        actionTracker.record(session_id, 'navigate', { url }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       case 'click': {
         const { session_id, selector } = args as { session_id: string; selector: string };
         const result = await browserBridge.click(session_id, selector);
+        actionTracker.record(session_id, 'click', { selector }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       case 'type': {
         const { session_id, selector, text } = args as { session_id: string; selector: string; text: string };
         const result = await browserBridge.type(session_id, selector, text);
+        actionTracker.record(session_id, 'type', { selector, text }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       case 'screenshot': {
         const { session_id } = args as { session_id: string };
         const buffer = await browserBridge.screenshot(session_id);
+        actionTracker.record(session_id, 'screenshot', {}, 'screenshot taken');
         return { content: [{ type: 'image', data: buffer.toString('base64'), mimeType: 'image/jpeg' }] };
       }
 
       case 'get_text': {
         const { session_id, selector } = args as { session_id: string; selector?: string };
         const text = await browserBridge.getText(session_id, selector);
+        actionTracker.record(session_id, 'get_text', { selector }, text);
         return { content: [{ type: 'text', text }] };
       }
 
       case 'wait_for': {
         const { session_id, selector, timeout } = args as { session_id: string; selector: string; timeout?: number };
         const result = await browserBridge.waitFor(session_id, selector, timeout);
+        actionTracker.record(session_id, 'wait_for', { selector, timeout }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       case 'evaluate': {
         const { session_id, script } = args as { session_id: string; script: string };
         const result = await browserBridge.evaluate(session_id, script);
+        actionTracker.record(session_id, 'evaluate', { script }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       case 'fill_form': {
         const { session_id, fields } = args as { session_id: string; fields: Record<string, string> };
         const result = await browserBridge.fillForm(session_id, fields);
+        actionTracker.record(session_id, 'fill_form', { fields }, result);
         return { content: [{ type: 'text', text: result }] };
       }
 
       // === Auth Tools ===
       case 'session_auth_save': {
         const { session_id, name: authName } = args as { session_id: string; name: string };
-        const filePath = join(AUTH_DIR, `${authName}.json`);
-        const result = await browserBridge.saveAuth(session_id, filePath);
-        return { content: [{ type: 'text', text: result }] };
+        const stateJson = await browserBridge.saveAuthToJson(session_id);
+        const parsed = JSON.parse(stateJson);
+        database.saveAuth(authName, JSON.stringify(parsed.cookies), JSON.stringify(parsed.origins));
+        return { content: [{ type: 'text', text: `Auth "${authName}" saved to database.` }] };
       }
 
       case 'session_auth_load': {
         const { session_id, name: authName } = args as { session_id: string; name: string };
-        const filePath = join(AUTH_DIR, `${authName}.json`);
-        if (!existsSync(filePath)) {
-          return { content: [{ type: 'text', text: `Auth "${authName}" not found. Save it first with session_auth_save.` }], isError: true };
+        const auth = database.getAuth(authName);
+        if (!auth) {
+          return { content: [{ type: 'text', text: `Auth "${authName}" not found. Save it first.` }], isError: true };
         }
-        const result = await browserBridge.loadAuth(session_id, filePath);
-        return { content: [{ type: 'text', text: result }] };
+        const stateJson = JSON.stringify({ cookies: JSON.parse(auth.cookiesJson), origins: JSON.parse(auth.storageJson) });
+        await browserBridge.loadAuthFromJson(session_id, stateJson);
+        return { content: [{ type: 'text', text: `Auth "${authName}" loaded from database.` }] };
       }
 
       default:
@@ -184,6 +213,7 @@ process.on('SIGINT', async () => {
   viewerProcesses.clear();
   await screencastRelay.stopAll();
   await sessionManager.destroyAll();
+  database.close();
   process.exit(0);
 });
 
@@ -192,6 +222,7 @@ process.on('SIGTERM', async () => {
   viewerProcesses.clear();
   await screencastRelay.stopAll();
   await sessionManager.destroyAll();
+  database.close();
   process.exit(0);
 });
 
