@@ -1,14 +1,52 @@
 import { chromium, Browser, Page, BrowserContext } from 'playwright';
 import { SessionManager } from './session-manager.js';
+import { ConsoleCollector } from './console-collector.js';
+import { NetworkCollector } from './network-collector.js';
+import type { ConsoleEntry } from './console-collector.js';
 
 export class BrowserBridge {
   private sessionManager: SessionManager;
   private browsers: Map<string, Browser> = new Map();
   private contexts: Map<string, BrowserContext> = new Map();
   private pages: Map<string, Page> = new Map();
+  private consoleCollector: ConsoleCollector;
+  private networkCollector: NetworkCollector;
 
-  constructor(sessionManager: SessionManager) {
+  constructor(
+    sessionManager: SessionManager,
+    consoleCollector?: ConsoleCollector,
+    networkCollector?: NetworkCollector,
+  ) {
     this.sessionManager = sessionManager;
+    this.consoleCollector = consoleCollector ?? new ConsoleCollector();
+    this.networkCollector = networkCollector ?? new NetworkCollector();
+  }
+
+  getConsoleCollector(): ConsoleCollector { return this.consoleCollector; }
+  getNetworkCollector(): NetworkCollector { return this.networkCollector; }
+
+  private attachPageListeners(sessionId: string, page: Page): void {
+    page.on('console', (msg) => {
+      const level = msg.type();
+      const mapped = (['log', 'warn', 'error', 'info'].includes(level) ? level : 'log') as ConsoleEntry['level'];
+      this.consoleCollector.push(sessionId, {
+        level: mapped,
+        text: msg.text(),
+        timestamp: Date.now(),
+      });
+    });
+
+    page.on('request', (request) => {
+      this.networkCollector.recordRequest(sessionId, request.url(), request.method());
+    });
+
+    page.on('response', (response) => {
+      const request = response.request();
+      this.networkCollector.recordResponse(
+        sessionId, response.url(), request.method(),
+        response.status(), request.resourceType(),
+      );
+    });
   }
 
   async connect(sessionId: string, maxRetries: number = 10): Promise<void> {
@@ -24,6 +62,11 @@ export class BrowserBridge {
         this.browsers.set(sessionId, browser);
         this.contexts.set(sessionId, context);
         this.pages.set(sessionId, page);
+
+        this.attachPageListeners(sessionId, page);
+        context.on('page', (newPage: Page) => {
+          this.attachPageListeners(sessionId, newPage);
+        });
 
         this.sessionManager.setStatus(sessionId, 'running');
         return;
@@ -43,6 +86,8 @@ export class BrowserBridge {
     this.browsers.delete(sessionId);
     this.contexts.delete(sessionId);
     this.pages.delete(sessionId);
+    this.consoleCollector.clear(sessionId);
+    this.networkCollector.clear(sessionId);
   }
 
   getPage(sessionId: string): Page {
@@ -128,11 +173,78 @@ export class BrowserBridge {
     this.browsers.set(sessionId, browser);
     this.contexts.set(sessionId, context);
     this.pages.set(sessionId, page);
+
+    this.attachPageListeners(sessionId, page);
+    context.on('page', (newPage: Page) => {
+      this.attachPageListeners(sessionId, newPage);
+    });
+
     return 'Auth loaded from database';
   }
 
   async getCurrentUrl(sessionId: string): Promise<string> {
     const page = this.getPage(sessionId);
     return page.url();
+  }
+
+  async getPages(sessionId: string): Promise<Array<{ index: number; url: string; title: string }>> {
+    const context = this.getContext(sessionId);
+    const pages = context.pages();
+    return Promise.all(
+      pages.map(async (p, i) => ({
+        index: i,
+        url: p.url(),
+        title: await p.title().catch(() => ''),
+      })),
+    );
+  }
+
+  async switchTab(sessionId: string, index: number): Promise<string> {
+    const context = this.getContext(sessionId);
+    const pages = context.pages();
+    if (index < 0 || index >= pages.length) {
+      throw new Error(`Tab index ${index} out of range (${pages.length} tabs)`);
+    }
+    const page = pages[index];
+    await page.bringToFront();
+    this.pages.set(sessionId, page);
+    return `Switched to tab ${index}: ${page.url()}`;
+  }
+
+  async closeTab(sessionId: string, index: number): Promise<string> {
+    const context = this.getContext(sessionId);
+    const pages = context.pages();
+    if (pages.length <= 1) {
+      throw new Error('Cannot close the last tab');
+    }
+    if (index < 0 || index >= pages.length) {
+      throw new Error(`Tab index ${index} out of range (${pages.length} tabs)`);
+    }
+    const page = pages[index];
+    const url = page.url();
+    const activePage = this.pages.get(sessionId);
+    await page.close();
+
+    if (page === activePage) {
+      const remaining = context.pages();
+      const newActive = remaining[Math.min(index, remaining.length - 1)];
+      this.pages.set(sessionId, newActive);
+    }
+
+    return `Closed tab ${index}: ${url}`;
+  }
+
+  async waitForNetworkRequest(sessionId: string, urlPattern: string, timeout: number = 30000): Promise<{ url: string; method: string; status: number | null }> {
+    const page = this.getPage(sessionId);
+    const request = await page.waitForRequest(
+      (req) => req.url().includes(urlPattern),
+      { timeout },
+    );
+    const response = await request.response().catch(() => null);
+    return {
+      url: request.url(),
+      method: request.method(),
+      status: response?.status() ?? null,
+    };
   }
 }
