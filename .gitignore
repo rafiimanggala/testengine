@@ -1,0 +1,4 @@
+node_modules/
+dist/
+data/auth/
+*.js.map
