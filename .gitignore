@@ -1,4 +1,7 @@
 node_modules/
 dist/
 data/auth/
+*.db
+*.db-wal
+*.db-shm
 *.js.map
