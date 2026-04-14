@@ -32,7 +32,8 @@ export class ActionTracker {
     let summary = `currently on ${currentUrl}, ${count} actions performed`;
 
     if (last) {
-      const params = last.paramsJson ? JSON.parse(last.paramsJson) : {};
+      let params: Record<string, string> = {};
+      try { params = last.paramsJson ? JSON.parse(last.paramsJson) : {}; } catch { /* malformed */ }
       const detail = params.selector ?? params.url ?? '';
       const ago = this.timeAgo(last.timestamp);
       summary += `, last action: ${last.action}${detail ? ' ' + detail : ''} (${ago})`;
