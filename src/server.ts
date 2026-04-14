@@ -52,9 +52,11 @@ const healthMonitor = new HealthMonitor({
       const parsed = JSON.parse(authJson);
       database.saveAuth(`__hibernate_${sessionId}`, JSON.stringify(parsed.cookies), JSON.stringify(parsed.origins));
     } catch { /* no auth to save */ }
-    await browserBridge.disconnect(sessionId);
-    await sessionManager.destroy(sessionId);
-    healthMonitor.unregister(sessionId);
+    const container = sessionManager.getPool().getContainer(sessionId);
+    if (container) {
+      try { await container.stop(); } catch { /* already stopped */ }
+    }
+    sessionManager.setStatus(sessionId, 'stopped');
   },
 });
 healthMonitor.start();
@@ -333,6 +335,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: 'text', text: `Session "${session_id}" not found` }], isError: true };
         }
 
+        // Capture current URL before destroying
+        let currentUrl = session.url;
+        try {
+          currentUrl = await browserBridge.getCurrentUrl(session_id);
+        } catch { /* use original */ }
+
         // Save current auth state
         let savedAuth: string | null = null;
         try {
@@ -345,12 +353,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (viewerProc) { viewerProc.kill(); viewerProcesses.delete(session_id); }
         await screencastRelay.stop(session_id);
         await browserBridge.disconnect(session_id);
-        const oldUrl = session.url;
         const oldMode = session.mode;
         await sessionManager.destroy(session_id);
 
         // Recreate
-        const newSession = await sessionManager.create(session_id, oldUrl, oldMode);
+        const newSession = await sessionManager.create(session_id, currentUrl, oldMode);
         await browserBridge.connect(session_id);
 
         const newContainer = sessionManager.getPool().getContainer(session_id);
@@ -361,7 +368,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           await browserBridge.loadAuthFromJson(session_id, savedAuth);
         }
 
-        await browserBridge.navigate(session_id, oldUrl);
+        await browserBridge.navigate(session_id, currentUrl);
 
         return {
           content: [{

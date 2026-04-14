@@ -24,9 +24,11 @@ export class ContainerPool {
   private docker: Docker;
   private basePort: number;
   private nextPort: number;
+  private releasedPorts: number[] = [];
   private targetSize: number = 0;
   private warm: WarmContainer[] = [];
   private active: Map<string, ActiveContainer> = new Map();
+  private refillPromise: Promise<void> = Promise.resolve();
 
   constructor(docker: Docker, basePort: number = 9100) {
     this.docker = docker;
@@ -75,6 +77,8 @@ export class ContainerPool {
       startedAt: new Date(),
     });
 
+    this.refillPromise = this.refillBackground().catch(() => {});
+
     return { containerId: entry.container.id, port: entry.port };
   }
 
@@ -82,12 +86,14 @@ export class ContainerPool {
     const entry = this.active.get(sessionId);
     if (!entry) return;
     this.active.delete(sessionId);
+    this.releasedPorts.push(entry.port);
     try { await entry.container.stop(); } catch { /* already stopped */ }
     try { await entry.container.remove(); } catch { /* already removed */ }
   }
 
   async drain(): Promise<void> {
     this.targetSize = 0;
+    await this.refillPromise;
 
     for (const entry of this.warm) {
       try { await entry.container.stop(); } catch { /* ignore */ }
@@ -95,7 +101,8 @@ export class ContainerPool {
     }
     this.warm = [];
 
-    for (const [sid] of this.active) {
+    const activeIds = Array.from(this.active.keys());
+    for (const sid of activeIds) {
       await this.release(sid);
     }
   }
@@ -117,6 +124,9 @@ export class ContainerPool {
   }
 
   private allocatePort(): number {
+    if (this.releasedPorts.length > 0) {
+      return this.releasedPorts.shift()!;
+    }
     return this.nextPort++;
   }
 
