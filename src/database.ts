@@ -1,3 +1,5 @@
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
 import BetterSqlite3 from 'better-sqlite3';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 
@@ -43,6 +45,8 @@ export class Database {
   private db: BetterSqlite3Database;
 
   constructor(dbPath: string = 'data/testengine.db') {
+    const dir = dirname(dbPath);
+    if (dir && dir !== '.') mkdirSync(dir, { recursive: true });
     this.db = new BetterSqlite3(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
@@ -156,19 +160,21 @@ export class Database {
   // === Action History ===
 
   recordAction(sessionId: string, action: string, paramsJson: string | null, resultJson: string | null): void {
-    this.db.prepare(`
-      INSERT INTO action_history (session_id, action, params_json, result_json)
-      VALUES (?, ?, ?, ?)
-    `).run(sessionId, action, paramsJson, resultJson);
-
-    const count = this.getActionCount(sessionId);
-    if (count > RING_BUFFER_LIMIT) {
+    this.db.transaction(() => {
       this.db.prepare(`
-        DELETE FROM action_history WHERE id IN (
-          SELECT id FROM action_history WHERE session_id = ? ORDER BY id ASC LIMIT ?
-        )
-      `).run(sessionId, count - RING_BUFFER_LIMIT);
-    }
+        INSERT INTO action_history (session_id, action, params_json, result_json)
+        VALUES (?, ?, ?, ?)
+      `).run(sessionId, action, paramsJson, resultJson);
+
+      const count = this.getActionCount(sessionId);
+      if (count > RING_BUFFER_LIMIT) {
+        this.db.prepare(`
+          DELETE FROM action_history WHERE id IN (
+            SELECT id FROM action_history WHERE session_id = ? ORDER BY id ASC LIMIT ?
+          )
+        `).run(sessionId, count - RING_BUFFER_LIMIT);
+      }
+    })();
   }
 
   getActions(sessionId: string, limit: number = RING_BUFFER_LIMIT): ActionRow[] {

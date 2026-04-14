@@ -43,7 +43,7 @@ export class ActionTracker {
   }
 
   private timeAgo(isoTimestamp: string): string {
-    const diff = Date.now() - new Date(isoTimestamp + 'Z').getTime();
+    const diff = Date.now() - new Date(isoTimestamp.replace(' ', 'T') + 'Z').getTime();
     const seconds = Math.floor(diff / 1000);
     if (seconds < 60) return `${seconds}s ago`;
     const minutes = Math.floor(seconds / 60);
