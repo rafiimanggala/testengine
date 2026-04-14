@@ -198,6 +198,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: 'text', text: `Auth "${authName}" loaded from database.` }] };
       }
 
+      // === Profile Tools ===
+      case 'profile_save': {
+        const { name: profileName, url, auth_name, viewport } = args as {
+          name: string; url: string; auth_name?: string; viewport?: { width: number; height: number };
+        };
+        database.saveProfile({
+          name: profileName,
+          url,
+          authName: auth_name,
+          viewportJson: viewport ? JSON.stringify(viewport) : undefined,
+        });
+        return { content: [{ type: 'text', text: `Profile "${profileName}" saved.` }] };
+      }
+
+      case 'profile_list': {
+        const profiles = database.listProfiles();
+        if (profiles.length === 0) {
+          return { content: [{ type: 'text', text: 'No saved profiles.' }] };
+        }
+        const lines = profiles.map((p) => {
+          const auth = p.authName ? `, auth: ${p.authName}` : '';
+          return `- ${p.name}: ${p.url}${auth}`;
+        });
+        return { content: [{ type: 'text', text: lines.join('\n') }] };
+      }
+
+      case 'profile_delete': {
+        const { name: profileName } = args as { name: string };
+        database.deleteProfile(profileName);
+        return { content: [{ type: 'text', text: `Profile "${profileName}" deleted.` }] };
+      }
+
       default:
         return { content: [{ type: 'text', text: `Unknown tool: ${name}` }], isError: true };
     }

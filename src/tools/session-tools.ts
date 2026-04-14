@@ -42,4 +42,37 @@ export const sessionToolDefs = [
       required: ['id'],
     },
   },
+  {
+    name: 'profile_save',
+    description: 'Save a project profile (URL + auth + viewport config) for quick session setup.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Profile name (e.g. "biobrain-admin")' },
+        url: { type: 'string', description: 'Default URL for this profile' },
+        auth_name: { type: 'string', description: 'Name of saved auth to auto-load (optional)' },
+        viewport: { type: 'object', description: 'Viewport config { width, height } (optional)', properties: { width: { type: 'number' }, height: { type: 'number' } } },
+      },
+      required: ['name', 'url'],
+    },
+  },
+  {
+    name: 'profile_list',
+    description: 'List all saved project profiles.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
+    name: 'profile_delete',
+    description: 'Delete a saved project profile.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Profile name to delete' },
+      },
+      required: ['name'],
+    },
+  },
 ];
