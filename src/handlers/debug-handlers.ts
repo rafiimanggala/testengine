@@ -9,13 +9,14 @@ export function createDebugHandlers(ctx: HandlerContext): Map<string, ToolHandle
     const entries = collector.get(session_id);
     if (clear) collector.clear(session_id);
 
+    ctx.actionTracker.record(session_id, 'console_log', { clear }, `${entries.length} messages`);
+    ctx.healthMonitor.touchAction(session_id);
+
     if (entries.length === 0) {
       return { content: [{ type: 'text', text: 'No console messages.' }] };
     }
 
     const lines = entries.map((e) => `[${e.level}] ${e.text}`);
-    ctx.actionTracker.record(session_id, 'console_log', { clear }, `${entries.length} messages`);
-    ctx.healthMonitor.touchAction(session_id);
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   });
 
@@ -24,6 +25,9 @@ export function createDebugHandlers(ctx: HandlerContext): Map<string, ToolHandle
     const collector = ctx.browserBridge.getNetworkCollector();
     const entries = collector.get(session_id, filter);
 
+    ctx.actionTracker.record(session_id, 'get_network_log', { filter }, `${entries.length} entries`);
+    ctx.healthMonitor.touchAction(session_id);
+
     if (entries.length === 0) {
       return { content: [{ type: 'text', text: filter ? `No network entries matching "${filter}".` : 'No network entries.' }] };
     }
@@ -31,8 +35,6 @@ export function createDebugHandlers(ctx: HandlerContext): Map<string, ToolHandle
     const lines = entries.map((e) =>
       `${e.method} ${e.url} → ${e.status} (${e.duration}ms, ${e.resourceType})`
     );
-    ctx.actionTracker.record(session_id, 'get_network_log', { filter }, `${entries.length} entries`);
-    ctx.healthMonitor.touchAction(session_id);
     return { content: [{ type: 'text', text: lines.join('\n') }] };
   });
 

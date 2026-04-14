@@ -21,12 +21,9 @@ export interface HandlerContext {
   sessionIdRegex: RegExp;
 }
 
-export interface ToolContent {
-  type: 'text' | 'image';
-  text?: string;
-  data?: string;
-  mimeType?: string;
-}
+export type ToolContent =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string };
 
 export interface ToolResult {
   [key: string]: unknown;
