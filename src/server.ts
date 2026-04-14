@@ -8,16 +8,23 @@ import { existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { SessionManager } from './session-manager.js';
 import { BrowserBridge } from './browser-bridge.js';
+import { ScreencastRelay } from './screencast-relay.js';
 import { rewriteUrl } from './url-rewriter.js';
 import { sessionToolDefs } from './tools/session-tools.js';
 import { browserToolDefs } from './tools/browser-tools.js';
 import { authToolDefs } from './tools/auth-tools.js';
+import { exec } from 'child_process';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const AUTH_DIR = join(process.cwd(), 'data', 'auth');
 if (!existsSync(AUTH_DIR)) mkdirSync(AUTH_DIR, { recursive: true });
 
 const sessionManager = new SessionManager();
 const browserBridge = new BrowserBridge(sessionManager);
+const screencastRelay = new ScreencastRelay(9200);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const VIEWER_BINARY = join(__dirname, '..', 'viewer', 'TestEngineViewer', '.build', 'release', 'TestEngineViewer');
 
 const server = new Server(
   { name: 'testengine', version: '0.1.0' },
@@ -38,15 +45,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // === Session Tools ===
       case 'session_create': {
         const { id, url, mode } = args as { id: string; url: string; mode?: string };
-        const session = await sessionManager.create(id, url, (mode as 'headless' | 'visible') ?? 'headless');
+        const sessionMode = (mode as 'headless' | 'visible') ?? 'headless';
+        const session = await sessionManager.create(id, url, sessionMode);
         await browserBridge.connect(id);
         const rewritten = rewriteUrl(url);
         await browserBridge.navigate(id, rewritten);
+
+        if (sessionMode === 'visible') {
+          try {
+            const page = browserBridge.getPage(id);
+            const viewerPort = await screencastRelay.start(id, page);
+            session.viewerPort = viewerPort;
+            exec(`"${VIEWER_BINARY}" --session "${id}" --ws "ws://localhost:${viewerPort}"`, (err) => {
+              if (err) console.error(`Viewer launch failed for "${id}": ${err.message}`);
+            });
+            return { content: [{ type: 'text', text: `Session "${id}" created (visible). URL: ${rewritten}, Port: ${session.port}, Viewer: ws://localhost:${viewerPort}` }] };
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(`Screencast failed for "${id}", running headless: ${msg}`);
+          }
+        }
+
         return { content: [{ type: 'text', text: `Session "${id}" created. URL: ${rewritten}, Port: ${session.port}` }] };
       }
 
       case 'session_destroy': {
         const { id } = args as { id: string };
+        await screencastRelay.stop(id);
         await browserBridge.disconnect(id);
         await sessionManager.destroy(id);
         return { content: [{ type: 'text', text: `Session "${id}" destroyed.` }] };
@@ -57,7 +82,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (sessions.length === 0) {
           return { content: [{ type: 'text', text: 'No active sessions.' }] };
         }
-        const lines = sessions.map((s) => `- ${s.id}: ${s.url} (${s.status}, port ${s.port})`);
+        const lines = sessions.map((s) => {
+          const viewer = s.viewerPort ? `, viewer ws://localhost:${s.viewerPort}` : '';
+          return `- ${s.id}: ${s.url} (${s.status}, port ${s.port}${viewer})`;
+        });
         return { content: [{ type: 'text', text: lines.join('\n') }] };
       }
 
@@ -139,11 +167,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Cleanup on exit
 process.on('SIGINT', async () => {
+  await screencastRelay.stopAll();
   await sessionManager.destroyAll();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
+  await screencastRelay.stopAll();
   await sessionManager.destroyAll();
   process.exit(0);
 });
