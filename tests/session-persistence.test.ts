@@ -17,11 +17,15 @@ afterEach(() => {
 
 describe('SessionManager persistence', () => {
   it('persists session to DB on create', async () => {
+    const mockContainer = {
+      id: 'container-123',
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
     const mockDocker = {
-      createContainer: vi.fn().mockResolvedValue({
-        id: 'container-123',
-        start: vi.fn().mockResolvedValue(undefined),
-      }),
+      createContainer: vi.fn().mockResolvedValue(mockContainer),
+      getContainer: vi.fn().mockReturnValue(mockContainer),
     } as any;
 
     const sm = new SessionManager(mockDocker, 9100, db);
@@ -34,15 +38,15 @@ describe('SessionManager persistence', () => {
   });
 
   it('removes session from DB on destroy', async () => {
+    const mockContainer = {
+      id: 'container-123',
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
     const mockDocker = {
-      createContainer: vi.fn().mockResolvedValue({
-        id: 'container-123',
-        start: vi.fn().mockResolvedValue(undefined),
-      }),
-      getContainer: vi.fn().mockReturnValue({
-        stop: vi.fn().mockResolvedValue(undefined),
-        remove: vi.fn().mockResolvedValue(undefined),
-      }),
+      createContainer: vi.fn().mockResolvedValue(mockContainer),
+      getContainer: vi.fn().mockReturnValue(mockContainer),
     } as any;
 
     const sm = new SessionManager(mockDocker, 9100, db);
@@ -53,11 +57,15 @@ describe('SessionManager persistence', () => {
   });
 
   it('updates status in DB via setStatus', async () => {
+    const mockContainer = {
+      id: 'c1',
+      start: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue(undefined),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
     const mockDocker = {
-      createContainer: vi.fn().mockResolvedValue({
-        id: 'c1',
-        start: vi.fn().mockResolvedValue(undefined),
-      }),
+      createContainer: vi.fn().mockResolvedValue(mockContainer),
+      getContainer: vi.fn().mockReturnValue(mockContainer),
     } as any;
 
     const sm = new SessionManager(mockDocker, 9100, db);
@@ -78,7 +86,10 @@ describe('SessionManager persistence', () => {
       containerId: 'old-container',
     });
 
-    const mockDocker = {} as any;
+    const mockDocker = {
+      createContainer: vi.fn(),
+      getContainer: vi.fn(),
+    } as any;
     const sm = new SessionManager(mockDocker, 9100, db);
 
     // Stale sessions should be cleaned up from DB

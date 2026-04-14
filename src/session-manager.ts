@@ -1,5 +1,6 @@
 import Docker from 'dockerode';
 import { PortAllocator } from './port-allocator.js';
+import { ContainerPool } from './container-pool.js';
 import { rewriteUrl } from './url-rewriter.js';
 import type { Database as TestEngineDB } from './database.js';
 
@@ -14,18 +15,17 @@ export interface Session {
   createdAt: Date;
 }
 
-const DOCKER_IMAGE = 'testengine-browser';
-const CONTAINER_PREFIX = 'te-';
-
 export class SessionManager {
   private docker: Docker;
   private portAllocator: PortAllocator;
+  private pool: ContainerPool;
   private sessions: Map<string, Session> = new Map();
   private db?: TestEngineDB;
 
-  constructor(docker?: Docker, basePort?: number, db?: TestEngineDB) {
+  constructor(docker?: Docker, basePort?: number, db?: TestEngineDB, pool?: ContainerPool) {
     this.docker = docker ?? new Docker();
     this.portAllocator = new PortAllocator(basePort ?? 9100);
+    this.pool = pool ?? new ContainerPool(this.docker, basePort ?? 9100);
     this.db = db;
     this.cleanupStaleFromDb();
   }
@@ -43,27 +43,15 @@ export class SessionManager {
       throw new Error(`Session "${id}" already exists`);
     }
 
-    const port = this.portAllocator.allocate(id);
     const rewrittenUrl = rewriteUrl(url);
-
-    const container = await this.docker.createContainer({
-      Image: DOCKER_IMAGE,
-      name: `${CONTAINER_PREFIX}${id}`,
-      ExposedPorts: { '3000/tcp': {} },
-      HostConfig: {
-        PortBindings: { '3000/tcp': [{ HostPort: String(port) }] },
-        ShmSize: 2 * 1024 * 1024 * 1024, // 2GB
-      },
-    });
-
-    await container.start();
+    const acquired = await this.pool.acquire(id);
 
     const session: Session = {
       id,
       url: rewrittenUrl,
       mode,
-      port,
-      containerId: container.id,
+      port: acquired.port,
+      containerId: acquired.containerId,
       status: 'starting',
       createdAt: new Date(),
     };
@@ -87,19 +75,7 @@ export class SessionManager {
       throw new Error(`Session "${id}" not found`);
     }
 
-    const container = this.docker.getContainer(session.containerId);
-    try {
-      await container.stop({ t: 5 });
-    } catch {
-      // Container may already be stopped
-    }
-    try {
-      await container.remove({ force: true });
-    } catch {
-      // Container may already be removed
-    }
-
-    this.portAllocator.release(id);
+    await this.pool.release(id);
     this.sessions.delete(id);
     this.db?.deleteSession(id);
   }
@@ -129,5 +105,9 @@ export class SessionManager {
       session.status = status;
       this.db?.updateSessionStatus(id, status);
     }
+  }
+
+  getPool(): ContainerPool {
+    return this.pool;
   }
 }
