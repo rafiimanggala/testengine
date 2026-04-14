@@ -22,7 +22,7 @@ export class SessionManager {
 
   constructor(docker?: Docker, basePort?: number) {
     this.docker = docker ?? new Docker();
-    this.portAllocator = new PortAllocator(basePort ?? 3001);
+    this.portAllocator = new PortAllocator(basePort ?? 9100);
   }
 
   async create(id: string, url: string, mode: 'headless' | 'visible' = 'headless'): Promise<Session> {
