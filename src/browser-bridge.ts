@@ -110,30 +110,6 @@ export class BrowserBridge {
     return `Filled ${filled.length} fields: ${filled.join(', ')}`;
   }
 
-  async saveAuth(sessionId: string, filePath: string): Promise<string> {
-    const context = this.getContext(sessionId);
-    await context.storageState({ path: filePath });
-    return `Auth saved to ${filePath}`;
-  }
-
-  async loadAuth(sessionId: string, filePath: string): Promise<string> {
-    const session = this.sessionManager.get(sessionId);
-    if (!session) throw new Error(`Session "${sessionId}" not found`);
-
-    await this.disconnect(sessionId);
-
-    const wsEndpoint = this.sessionManager.getWsEndpoint(sessionId);
-    const browser = await chromium.connect(wsEndpoint);
-    const context = await browser.newContext({ storageState: filePath });
-    const page = await context.newPage();
-
-    this.browsers.set(sessionId, browser);
-    this.contexts.set(sessionId, context);
-    this.pages.set(sessionId, page);
-
-    return `Auth loaded from ${filePath}`;
-  }
-
   async saveAuthToJson(sessionId: string): Promise<string> {
     const context = this.getContext(sessionId);
     const state = await context.storageState();
