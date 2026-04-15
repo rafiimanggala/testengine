@@ -54,8 +54,9 @@ export class BrowserBridge {
 
     let lastError: Error | null = null;
     for (let i = 0; i < maxRetries; i++) {
+      let browser: Browser | null = null;
       try {
-        const browser = await chromium.connect(wsEndpoint);
+        browser = await chromium.connect(wsEndpoint);
         const context = await browser.newContext();
         const page = await context.newPage();
 
@@ -72,6 +73,7 @@ export class BrowserBridge {
         return;
       } catch (err) {
         lastError = err as Error;
+        if (browser) { await browser.close().catch(() => {}); }
         await new Promise((r) => setTimeout(r, 500));
       }
     }

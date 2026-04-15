@@ -5,11 +5,11 @@ export const sessionToolDefs = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'string', description: 'Unique session identifier (e.g. "biobrain", "surfecho")' },
+        session_id: { type: 'string', description: 'Unique session identifier (e.g. "biobrain", "surfecho")' },
         url: { type: 'string', description: 'URL to navigate to after creation' },
         mode: { type: 'string', enum: ['headless', 'visible'], description: 'Display mode (default: headless)' },
       },
-      required: ['id', 'url'],
+      required: ['session_id', 'url'],
     },
   },
   {
@@ -18,9 +18,9 @@ export const sessionToolDefs = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'string', description: 'Session ID to destroy' },
+        session_id: { type: 'string', description: 'Session ID to destroy' },
       },
-      required: ['id'],
+      required: ['session_id'],
     },
   },
   {
@@ -37,9 +37,9 @@ export const sessionToolDefs = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'string', description: 'Session ID' },
+        session_id: { type: 'string', description: 'Session ID' },
       },
-      required: ['id'],
+      required: ['session_id'],
     },
   },
   {

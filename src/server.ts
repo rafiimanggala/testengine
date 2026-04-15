@@ -64,6 +64,7 @@ const healthMonitor = new HealthMonitor({
       try { await container.stop(); } catch { /* already stopped */ }
     }
     sessionManager.setStatus(sessionId, 'stopped');
+    healthMonitor.unregister(sessionId);
   },
 });
 healthMonitor.start();
@@ -97,15 +98,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
+let cleaningUp = false;
 const cleanup = async () => {
-  healthMonitor.stop();
-  for (const proc of viewerProcesses.values()) proc.kill();
-  viewerProcesses.clear();
-  await screencastRelay.stopAll();
-  await sessionManager.destroyAll();
-  await sessionManager.getPool().drain();
-  database.close();
-  process.exit(0);
+  if (cleaningUp) return;
+  cleaningUp = true;
+  try {
+    healthMonitor.stop();
+    for (const proc of viewerProcesses.values()) proc.kill();
+    viewerProcesses.clear();
+    await screencastRelay.stopAll();
+    await sessionManager.destroyAll();
+    await sessionManager.getPool().drain();
+    database.close();
+  } finally {
+    process.exit(0);
+  }
 };
 process.on('SIGINT', cleanup);
 process.on('SIGTERM', cleanup);

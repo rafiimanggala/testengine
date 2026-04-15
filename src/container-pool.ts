@@ -77,7 +77,7 @@ export class ContainerPool {
       startedAt: new Date(),
     });
 
-    this.refillPromise = this.refillBackground().catch(() => {});
+    this.refillPromise = this.refillPromise.then(() => this.refillBackground()).catch(() => {});
 
     return { containerId: entry.container.id, port: entry.port };
   }
@@ -96,6 +96,7 @@ export class ContainerPool {
     await this.refillPromise;
 
     for (const entry of this.warm) {
+      this.releasedPorts.push(entry.port);
       try { await entry.container.stop(); } catch { /* ignore */ }
       try { await entry.container.remove(); } catch { /* ignore */ }
     }

@@ -12,8 +12,8 @@ export interface SessionHealth {
 }
 
 interface HealthMonitorCallbacks {
-  onRecycle: (sessionId: string, reason: string) => void;
-  onHibernate: (sessionId: string) => void;
+  onRecycle: (sessionId: string, reason: string) => Promise<void>;
+  onHibernate: (sessionId: string) => Promise<void>;
 }
 
 interface MonitoredSession {
@@ -26,6 +26,7 @@ export class HealthMonitor {
   private callbacks: HealthMonitorCallbacks;
   private sessions: Map<string, MonitoredSession> = new Map();
   private interval: ReturnType<typeof setInterval> | null = null;
+  private recycling: Set<string> = new Set();
 
   constructor(callbacks: HealthMonitorCallbacks) {
     this.callbacks = callbacks;
@@ -87,11 +88,16 @@ export class HealthMonitor {
 
   private async runChecks(): Promise<void> {
     for (const [sessionId, session] of this.sessions) {
+      if (this.recycling.has(sessionId)) continue;
       try {
         const health = await this.check(session.container);
 
         if (!health.running) {
-          this.callbacks.onRecycle(sessionId, 'container crashed');
+          this.recycling.add(sessionId);
+          await this.callbacks.onRecycle(sessionId, 'container crashed').catch((err) =>
+            console.error(`[health] recycle error for ${sessionId}:`, err),
+          );
+          this.recycling.delete(sessionId);
           continue;
         }
 
@@ -99,12 +105,20 @@ export class HealthMonitor {
           const reason = health.memoryMB > MEMORY_LIMIT_MB
             ? `memory ${health.memoryMB}MB > ${MEMORY_LIMIT_MB}MB`
             : `uptime ${health.uptimeMinutes}min > ${UPTIME_LIMIT_MINUTES}min`;
-          this.callbacks.onRecycle(sessionId, reason);
+          this.recycling.add(sessionId);
+          await this.callbacks.onRecycle(sessionId, reason).catch((err) =>
+            console.error(`[health] recycle error for ${sessionId}:`, err),
+          );
+          this.recycling.delete(sessionId);
           continue;
         }
 
         if (this.shouldHibernate(session.lastActionAt)) {
-          this.callbacks.onHibernate(sessionId);
+          this.recycling.add(sessionId);
+          await this.callbacks.onHibernate(sessionId).catch((err) =>
+            console.error(`[health] hibernate error for ${sessionId}:`, err),
+          );
+          this.recycling.delete(sessionId);
         }
       } catch {
         // Container may have been removed between check start and inspect

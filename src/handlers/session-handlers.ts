@@ -8,7 +8,7 @@ export function createSessionHandlers(ctx: HandlerContext): Map<string, ToolHand
 
   // session_create
   handlers.set('session_create', async (args): Promise<ToolResult> => {
-    const { id, url, mode } = args as { id: string; url: string; mode?: string };
+    const { session_id: id, url, mode } = args as { session_id: string; url: string; mode?: string };
     if (!ctx.sessionIdRegex.test(id)) {
       return { content: [{ type: 'text', text: `Invalid session ID "${id}". Must match [a-zA-Z0-9][a-zA-Z0-9_-]{0,62}.` }], isError: true };
     }
@@ -42,7 +42,7 @@ export function createSessionHandlers(ctx: HandlerContext): Map<string, ToolHand
 
   // session_destroy
   handlers.set('session_destroy', async (args): Promise<ToolResult> => {
-    const { id } = args as { id: string };
+    const { session_id: id } = args as { session_id: string };
     ctx.healthMonitor.unregister(id);
     const viewerProc = ctx.viewerProcesses.get(id);
     if (viewerProc) {
@@ -71,7 +71,7 @@ export function createSessionHandlers(ctx: HandlerContext): Map<string, ToolHand
 
   // session_summary
   handlers.set('session_summary', async (args): Promise<ToolResult> => {
-    const { id } = args as { id: string };
+    const { session_id: id } = args as { session_id: string };
     const session = ctx.sessionManager.get(id);
     if (!session) {
       return { content: [{ type: 'text', text: `Session "${id}" not found.` }], isError: true };
