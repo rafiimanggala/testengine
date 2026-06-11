@@ -77,9 +77,10 @@ export function createBrowserHandlers(ctx: HandlerContext): Map<string, ToolHand
     const result = await ctx.commandQueue.enqueue(session_id, () =>
       ctx.browserBridge.evaluate(session_id, script)
     );
-    ctx.actionTracker.record(session_id, 'evaluate', { script }, result);
+    const safeResult = result == null ? 'undefined' : String(result);
+    ctx.actionTracker.record(session_id, 'evaluate', { script }, safeResult);
     ctx.healthMonitor.touchAction(session_id);
-    return { content: [{ type: 'text', text: result }] };
+    return { content: [{ type: 'text', text: safeResult }] };
   });
 
   // fill_form

@@ -47,6 +47,38 @@ export class BrowserBridge {
         response.status(), request.resourceType(),
       );
     });
+
+    page.on('close', () => {
+      if (this.pages.get(sessionId) === page) {
+        const ctx = this.contexts.get(sessionId);
+        if (ctx) {
+          const remaining = ctx.pages();
+          if (remaining.length > 0) {
+            const newActive = remaining[remaining.length - 1];
+            this.pages.set(sessionId, newActive);
+            console.error(`[browser-bridge] Page closed for "${sessionId}", switched to remaining page`);
+          } else {
+            this.pages.delete(sessionId);
+            console.error(`[browser-bridge] Page closed for "${sessionId}", no pages remaining`);
+          }
+        } else {
+          this.pages.delete(sessionId);
+        }
+      }
+    });
+
+    page.on('crash', () => {
+      console.error(`[browser-bridge] Page crashed for "${sessionId}"`);
+    });
+  }
+
+  private attachBrowserListeners(sessionId: string, browser: Browser): void {
+    browser.on('disconnected', () => {
+      console.error(`[browser-bridge] Browser disconnected for "${sessionId}"`);
+      this.browsers.delete(sessionId);
+      this.contexts.delete(sessionId);
+      this.pages.delete(sessionId);
+    });
   }
 
   async connect(sessionId: string, maxRetries: number = 10): Promise<void> {
@@ -64,9 +96,12 @@ export class BrowserBridge {
         this.contexts.set(sessionId, context);
         this.pages.set(sessionId, page);
 
+        this.attachBrowserListeners(sessionId, browser);
         this.attachPageListeners(sessionId, page);
         context.on('page', (newPage: Page) => {
           this.attachPageListeners(sessionId, newPage);
+          this.pages.set(sessionId, newPage);
+          console.error(`[browser-bridge] New page opened for "${sessionId}", updated active page`);
         });
 
         this.sessionManager.setStatus(sessionId, 'running');
@@ -94,8 +129,22 @@ export class BrowserBridge {
 
   getPage(sessionId: string): Page {
     const page = this.pages.get(sessionId);
-    if (!page) throw new Error(`No page for session "${sessionId}". Is it connected?`);
-    return page;
+    if (page && !page.isClosed()) return page;
+
+    // Try to recover from context
+    const ctx = this.contexts.get(sessionId);
+    if (ctx) {
+      const pages = ctx.pages().filter(p => !p.isClosed());
+      if (pages.length > 0) {
+        const recovered = pages[pages.length - 1];
+        this.pages.set(sessionId, recovered);
+        this.attachPageListeners(sessionId, recovered);
+        console.error(`[browser-bridge] Recovered page for "${sessionId}" from context (${pages.length} pages available)`);
+        return recovered;
+      }
+    }
+
+    throw new Error(`No page for session "${sessionId}". Is it connected?`);
   }
 
   private getContext(sessionId: string): BrowserContext {
@@ -176,9 +225,12 @@ export class BrowserBridge {
     this.contexts.set(sessionId, context);
     this.pages.set(sessionId, page);
 
+    this.attachBrowserListeners(sessionId, browser);
     this.attachPageListeners(sessionId, page);
     context.on('page', (newPage: Page) => {
       this.attachPageListeners(sessionId, newPage);
+      this.pages.set(sessionId, newPage);
+      console.error(`[browser-bridge] New page opened for "${sessionId}", updated active page`);
     });
 
     return 'Auth loaded from database';

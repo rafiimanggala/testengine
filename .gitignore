@@ -5,3 +5,4 @@ data/auth/
 *.db-wal
 *.db-shm
 *.js.map
+.DS_Store
